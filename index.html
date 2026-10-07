@@ -1,0 +1,555 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Fire Engine Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-height 3D stage, slim header with progress, info panel docks right on desktop and rises as a bottom sheet on phones */
+:root {
+  --bg: #eef0f2;
+  --stage-top: #f7f8f9;
+  --stage-bottom: #d9dde1;
+  --fg: #1d2329;
+  --muted: #5d6873;
+  --panel: #ffffff;
+  --line: #d3d8dd;
+  --hot: #f2a900;        /* high-visibility amber, reads against red paint */
+  --hot-ink: #1d2329;
+  --visited: #2f7d5b;
+  --accent: #b3261e;     /* apparatus red */
+  --shadow: 0 18px 48px rgba(20, 28, 36, .18);
+  --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "Barlow", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181c; --stage-top: #232a31; --stage-bottom: #0f1215; --fg: #e9ecef; --muted: #9aa5b0;
+    --panel: #1c2227; --line: #2f373f; --hot: #ffb81c; --hot-ink: #14181c; --visited: #4fb38a;
+    --accent: #e0533f; --shadow: 0 18px 48px rgba(0,0,0,.5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14181c; --stage-top: #232a31; --stage-bottom: #0f1215; --fg: #e9ecef; --muted: #9aa5b0;
+  --panel: #1c2227; --line: #2f373f; --hot: #ffb81c; --hot-ink: #14181c; --visited: #4fb38a;
+  --accent: #e0533f; --shadow: 0 18px 48px rgba(0,0,0,.5); color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; }
+
+header {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px;
+  padding-block: 12px; padding-inline: 20px; border-bottom: 1px solid var(--line); background: var(--panel); z-index: 3;
+}
+.brand { min-width: 0; }
+.brand h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px; letter-spacing: .02em; text-transform: uppercase; line-height: 1.05; text-wrap: balance; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.progress { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.track { width: 120px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.fill { height: 100%; width: 0; background: var(--visited); transition: width .4s ease; }
+.btn {
+  font: 600 13px/1 var(--body); color: var(--fg); background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 12px; cursor: pointer;
+}
+.btn:hover { border-color: var(--muted); }
+.btn:focus-visible, .hotspot:focus-visible, .close:focus-visible { outline: 3px solid var(--hot); outline-offset: 2px; }
+
+.stage { position: relative; flex: 1; min-height: 0; background: linear-gradient(var(--stage-top), var(--stage-bottom)); overflow: hidden; touch-action: none; }
+#canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+#canvas:active { cursor: grabbing; }
+.hint {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 14px; border-radius: 999px;
+  background: var(--panel); color: var(--muted); font-size: 13px; box-shadow: var(--shadow); white-space: nowrap; pointer-events: none;
+  transition: opacity .5s ease; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
+}
+.hint.gone { opacity: 0; }
+
+/* Hotspots */
+.hotspots { position: absolute; inset: 0; pointer-events: none; }
+.hotspot {
+  position: absolute; left: 0; top: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%;
+  border: 3px solid #fff; background: var(--hot); color: var(--hot-ink); font: 700 15px/1 var(--display);
+  display: grid; place-items: center; cursor: pointer; pointer-events: auto; padding: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35); transition: opacity .25s ease, transform .15s ease, background .3s;
+  will-change: transform;
+}
+.hotspot::before {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 3px solid var(--hot);
+  animation: pulse 1.8s ease-out infinite; pointer-events: none;
+}
+.hotspot.visited { background: var(--visited); color: #fff; }
+.hotspot.visited::before { border-color: var(--visited); animation: none; opacity: 0; }
+.hotspot.active { background: #fff; color: var(--accent); }
+.hotspot.active::before { border-color: #fff; }
+.hotspot.behind { opacity: .22; pointer-events: none; }
+.hotspot.behind::before { animation: none; opacity: 0; }
+.hotspot .tip {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap;
+  background: var(--panel); color: var(--fg); font: 600 12px/1 var(--body); padding: 6px 9px; border-radius: 5px;
+  box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+.hotspot:hover .tip, .hotspot:focus-visible .tip { opacity: 1; }
+@keyframes pulse { 0% { transform: scale(1); opacity: .9; } 100% { transform: scale(2.1); opacity: 0; } }
+
+/* Info panel */
+.panel {
+  position: absolute; top: 16px; right: 16px; bottom: 16px; width: min(380px, calc(100% - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; overflow: hidden; z-index: 4;
+  transform: translateX(calc(100% + 24px)); transition: transform .35s cubic-bezier(.2,.8,.2,1);
+}
+.panel.open { transform: none; }
+.panel-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+.badge { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font: 700 16px/1 var(--display); }
+.panel-head .titles { flex: 1; min-width: 0; }
+.kicker { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.panel h2 { margin: 3px 0 0; font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1.05; text-transform: uppercase; letter-spacing: .01em; text-wrap: balance; }
+.close { flex: none; width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); font-size: 18px; line-height: 1; cursor: pointer; }
+.panel-body { padding: 16px 20px 20px; overflow-y: auto; line-height: 1.55; }
+.panel-body p { margin: 0 0 12px; }
+.specs { margin: 14px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.specs li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.specs li span:first-child { color: var(--muted); }
+.specs li span:last-child { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.check { margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--hot) 16%, transparent); font-size: 14px; }
+.check strong { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 4px; }
+.panel-foot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; }
+
+.done {
+  position: absolute; top: 16px; left: 50%; transform: translate(-50%, -140%); background: var(--visited); color: #fff;
+  padding: 10px 16px; border-radius: 8px; font-weight: 600; box-shadow: var(--shadow); transition: transform .4s ease; z-index: 2;
+  max-width: calc(100% - 32px); text-align: center;
+}
+.done.show { transform: translate(-50%, 0); }
+
+/* Welcome / how-to dialog: compact card docked left so the truck stays visible */
+.intro { position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: flex-start;
+  padding-block: 16px; padding-inline: 24px; background: color-mix(in srgb, var(--bg) 18%, transparent); }
+.intro-card { width: min(340px, 100%); max-height: 100%; overflow-y: auto; background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 18px 18px 16px; }
+.intro-card .kicker { margin: 0; }
+.intro-card h2 { margin: 3px 0 8px; font-family: var(--display); font-weight: 700; font-size: 23px; line-height: 1.05; text-transform: uppercase; text-wrap: balance; }
+.intro-card > p { margin: 0 0 12px; line-height: 1.5; font-size: 14px; }
+.intro-card h3 { margin: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.controls { list-style: none; margin: 0 0 12px; padding: 0; border-top: 1px solid var(--line); }
+.controls li { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.controls li > span:first-child { font-weight: 600; }
+.controls li > span:last-child { color: var(--muted); min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); flex: none; }
+.dot.new { background: var(--hot); } .dot.seen { background: var(--visited); } .dot.far { background: var(--hot); opacity: .3; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 10px 16px; font-size: 14px; width: 100%; }
+.btn-primary:hover { border-color: var(--accent); filter: brightness(1.08); }
+@media (max-width: 640px) { .intro { align-items: flex-end; justify-content: center; padding-inline: 12px; padding-block: 12px; } .intro-card { width: 100%; max-height: 58%; } }
+@media (max-width: 640px) {
+  header { padding-inline: 16px; }
+  .brand h1 { font-size: 20px; }
+  .track { width: 80px; }
+  .panel { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; max-height: 62%; transform: translateY(calc(100% + 24px)); }
+  .panel.open { transform: none; }
+}
+.loader { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); font-size: 14px; z-index: 5; background: linear-gradient(var(--stage-top), var(--stage-bottom)); transition: opacity .4s ease; }
+.loader.gone { opacity: 0; pointer-events: none; }
+.loader-bar { width: 200px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.loader-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+@media (prefers-reduced-motion: reduce) {
+  .hotspot::before { animation: none; opacity: .5; transform: scale(1.4); }
+  .panel, .fill, .done { transition: none; }
+}
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>Fire Engine Explorer</h1>
+      <p id="subtitle" aria-live="polite" hidden></p>
+    </div>
+    <div class="tools">
+      <div class="progress" aria-live="polite">
+        <div class="track"><div class="fill" id="fill"></div></div>
+        <span id="count">0 of 8 explored</span>
+      </div>
+      <button class="btn" id="help" type="button">How to use</button>
+      <button class="btn" id="reset" type="button">Reset view</button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="canvas" aria-label="3D fire engine. Drag to rotate, scroll or pinch to zoom."></canvas>
+    <div class="hotspots" id="hotspots"></div>
+    <div class="loader" id="loader"><div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div><span id="loader-text">Loading fire engine…</span></div>
+    <div class="hint gone" id="hint">Drag to rotate · scroll or pinch to zoom · tap a pulsing marker</div>
+    <div class="done" id="done">All 8 sections explored</div>
+
+    <div class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
+      <div class="intro-card">
+        <p class="kicker">Apparatus familiarization</p>
+        <h2 id="intro-title">Get to know Engine 8</h2>
+        <p>Turn this North American pumper around, find the eight marked sections and open each one to learn what it does and its key safety point.</p>
+        <h3>Controls</h3>
+        <ul class="controls">
+          <li><span>Rotate</span><span>Drag with the mouse or one finger</span></li>
+          <li><span>Zoom</span><span>Scroll wheel or pinch</span></li>
+          <li><span>Learn</span><span>Click or tap a pulsing marker</span></li>
+          <li><span>Close</span><span>×, Esc, or tap the truck</span></li>
+        </ul>
+        <h3>Markers</h3>
+        <div class="legend">
+          <span><i class="dot new"></i>Not opened yet</span>
+          <span><i class="dot seen"></i>Already opened</span>
+          <span><i class="dot far"></i>On the far side</span>
+        </div>
+        <button class="btn btn-primary" id="start" type="button">Start exploring</button>
+      </div>
+    </div>
+
+    <aside class="panel" id="panel" aria-hidden="true" aria-labelledby="p-title">
+      <div class="panel-head">
+        <div class="badge" id="p-num">1</div>
+        <div class="titles">
+          <p class="kicker" id="p-kicker"></p>
+          <h2 id="p-title"></h2>
+        </div>
+        <button class="close" id="close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="panel-body" id="p-body"></div>
+      <div class="panel-foot">
+        <button class="btn" id="prev" type="button">← Previous</button>
+        <button class="btn" id="next" type="button">Next →</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/environments/RoomEnvironment.js"></script>
+<script>
+// ---------- Sample training content (replace with your own) ----------
+// pos / normal are in the model's own coordinates: +z is the front, +x is the driver (left) side, y is up.
+// region is the box [min, max] that glows when the section is open.
+const SECTIONS = [
+  { id: "cab", kicker: "Crew area", title: "Cab & crew compartment",
+    pos: [1.42, 2.3, 3.5], normal: [1, 0, 0],
+    region: [[-1.7, 0.9, 2.2], [1.7, 2.95, 5.05]],
+    body: "<p>The cab carries the driver/operator, officer and crew. Seats are forward and rear facing, and many have SCBA brackets so firefighters can don breathing apparatus while en route.</p><p>Crew must be seated and belted whenever the apparatus is moving. Doors and steps are designed for three points of contact when climbing in and out.</p>",
+    specs: [["Typical seating", "4 to 6 crew"], ["Seat equipment", "SCBA brackets"], ["Entry", "Grab rails, lit steps"]],
+    check: "Before moving: confirm all crew are seated, belted and doors are closed." },
+  { id: "lights", kicker: "Warning devices", title: "Emergency light bar",
+    pos: [0, 3.12, 4.4], normal: [0, 1, 0.35],
+    region: [[-1.15, 2.88, 4.1], [1.15, 3.3, 4.65]],
+    body: "<p>The roof-mounted light bar is the main forward and side warning device. Combined with lower lights around the body, it gives other road users a 360° warning.</p><p>Many departments reduce or change lighting once parked on scene so it doesn't blind approaching drivers or crews.</p>",
+    specs: [["Mounting", "Cab roof"], ["Coverage", "Forward and sides"], ["Paired with", "Siren, air horn"]],
+    check: "Test all warning lights and siren during the daily apparatus check." },
+  { id: "pump", kicker: "Water delivery", title: "Pump operator's panel",
+    pos: [1.4, 1.75, 0.8], normal: [1, 0, 0],
+    region: [[-1.7, 0.95, 0.2], [1.7, 2.5, 1.45]],
+    body: "<p>The pump panel sits just behind the cab, on the driver's side. Gauges show the intake (supply) and discharge pressures, and valves open individual hose lines. The large connections lower down are the intakes for supply hose.</p><p>The driver/operator watches the panel continuously during an operation and adjusts pressure for each line's length and nozzle type.</p>",
+    specs: [["Main gauges", "Intake and discharge"], ["Controls", "Throttle, valves, drains"], ["Location", "Midship, behind cab"]],
+    check: "Never leave the pump panel unattended while lines are charged." },
+  { id: "deckgun", kicker: "Master stream", title: "Deck gun",
+    pos: [0, 3.38, 1.0], normal: [0, 1, 0],
+    region: [[-0.85, 2.88, 0.25], [0.85, 3.7, 1.9]],
+    body: "<p>The deck gun is a roof-mounted monitor that delivers a large, heavy stream of water. It's used for defensive operations where crews need reach and volume without staffing a handline.</p><p>It's supplied directly from the pump, so the engine usually needs a hydrant or other steady water supply before it's flowed for long.</p>",
+    specs: [["Mounting", "Top of pump house"], ["Use", "Defensive, large fires"], ["Supply", "Fed from the pump"]],
+    check: "Confirm the area downrange is clear of crews before flowing the deck gun." },
+  { id: "hose", kicker: "Hose storage", title: "Hose bed",
+    pos: [0, 3.16, -2.0], normal: [0, 1, -0.3],
+    region: [[-1.38, 2.8, -3.45], [1.38, 3.25, -0.1]],
+    body: "<p>The hose bed on top of the body holds supply hose and attack lines in set loads, so they deploy cleanly without tangling. On this engine it's protected by a fabric cover.</p><p>Supply hose is laid from a hydrant to the engine; attack lines are pulled toward the fire.</p>",
+    specs: [["Location", "Top of rear body"], ["Loads", "Supply and attack"], ["Cover", "Fabric hose bed cover"]],
+    check: "Reload hose the same way every time so the next crew can rely on it." },
+  { id: "compartments", kicker: "Equipment", title: "Side compartments",
+    pos: [-1.41, 1.9, -1.7], normal: [-1, 0, 0],
+    region: [[-1.75, 1.1, -3.3], [1.75, 2.7, -0.25]],
+    body: "<p>Compartments along both sides of the body hold tools and equipment: forcible entry tools, nozzles, fittings, extinguishers, medical kits and more.</p><p>Each department maps what goes where, so every firefighter can find any item quickly, even in the dark.</p>",
+    specs: [["Location", "Both sides of body"], ["Contents", "Tools, nozzles, fittings"], ["Layout", "Set by department"]],
+    check: "Learn the compartment map. Practise finding items with your eyes closed." },
+  { id: "rear", kicker: "Rear of apparatus", title: "Rear step & access ladder",
+    pos: [0, 1.3, -4.25], normal: [0, 0, -1],
+    region: [[-1.5, 0.3, -4.35], [1.5, 3.45, -3.6]],
+    body: "<p>The rear step and fold-down access ladder let firefighters reach the hose bed to pull or reload hose. Grab handles give three points of contact while climbing.</p><p>The rear also carries warning lights to protect crews working behind the engine.</p>",
+    specs: [["Used for", "Hose bed access"], ["Safety", "Grab rails, lighting"], ["Rule", "No riding on the step"]],
+    check: "Never ride on the rear step. Use a spotter whenever the engine backs up." },
+  { id: "bumper", kicker: "Front of apparatus", title: "Front bumper",
+    pos: [0, 1.0, 5.42], normal: [0, 0, 1],
+    region: [[-1.5, 0.45, 4.95], [1.5, 1.25, 5.5]],
+    body: "<p>Many engines have an extended front bumper that can carry a short hose line or a front intake. A bumper line is handy for vehicle fires and small exterior fires.</p><p>The bumper also protects the front of the apparatus and carries additional warning lights.</p>",
+    specs: [["Common use", "Vehicle fires"], ["May hold", "Hose line, front intake"], ["Also carries", "Warning lights"]],
+    check: "Position the apparatus to protect the crew working at the front." }
+];
+
+// ---------- Scene ----------
+const canvas = document.getElementById("canvas");
+const stage = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+const TARGET = new THREE.Vector3(0, 1.7, 0.6);
+const HOME = new THREE.Vector3(10.5, 5.2, 12.5);
+camera.position.copy(HOME);
+
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.copy(TARGET);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 6;
+controls.maxDistance = 28;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.enablePan = false;
+controls.update();
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(8, 14, 10);
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x80868e, 0.35));
+
+// Soft ground shadow
+(() => {
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(128, 128, 10, 128, 128, 128);
+  grd.addColorStop(0, "rgba(0,0,0,0.5)"); grd.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 13), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.position.set(0, 0.01, 0.6);
+  scene.add(m);
+})();
+
+// ---------- Region highlight (glows the part of the truck inside a box) ----------
+const HL = { uMin: { value: new THREE.Vector3() }, uMax: { value: new THREE.Vector3() }, uOn: { value: 0 }, uTime: { value: 0 } };
+function addHighlight(mat) {
+  mat.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, HL);
+    shader.vertexShader = "varying vec3 vHlPos;\n" + shader.vertexShader.replace(
+      "#include <worldpos_vertex>",
+      "#include <worldpos_vertex>\n vHlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    shader.fragmentShader = "uniform vec3 uMin; uniform vec3 uMax; uniform float uOn; uniform float uTime; varying vec3 vHlPos;\n" +
+      shader.fragmentShader.replace("#include <dithering_fragment>",
+      "#include <dithering_fragment>\n if (uOn > 0.0 && all(greaterThan(vHlPos, uMin)) && all(lessThan(vHlPos, uMax))) {\n" +
+      "   float k = uOn * (0.28 + 0.12 * sin(uTime * 3.0));\n" +
+      "   gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.72, 0.12), k);\n }");
+  };
+  mat.needsUpdate = true;
+}
+function setHighlight(sec) {
+  if (!sec) { HL.uOn.value = 0; return; }
+  HL.uMin.value.set(...sec.region[0]);
+  HL.uMax.value.set(...sec.region[1]);
+  HL.uOn.value = 1;
+}
+
+// ---------- Load the model ----------
+const loaderEl = document.getElementById("loader");
+const loaderFill = document.getElementById("loader-fill");
+const loaderText = document.getElementById("loader-text");
+// The model ships as a glTF scene (fire-engine.json), its geometry as base64 text and its textures as images.
+// The page rebuilds a GLB in memory and hands it to the loader.
+async function fetchText(url, onProgress) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  const total = +res.headers.get("content-length") || 5915600;
+  if (!res.body || !res.body.getReader) return res.text();
+  const reader = res.body.getReader(); const parts = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length; onProgress(Math.min(1, got / total));
+  }
+  return new TextDecoder().decode(await new Blob(parts).arrayBuffer());
+}
+function base64ToBytes(b64) {
+  const s = atob(b64); const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+function buildGlb(jsonText, bin) {
+  const enc = new TextEncoder();
+  let json = enc.encode(jsonText);
+  const jpad = (4 - (json.length % 4)) % 4, bpad = (4 - (bin.length % 4)) % 4;
+  const total = 12 + 8 + json.length + jpad + 8 + bin.length + bpad;
+  const out = new Uint8Array(total); const dv = new DataView(out.buffer);
+  dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+  dv.setUint32(12, json.length + jpad, true); dv.setUint32(16, 0x4E4F534A, true);
+  out.set(json, 20); out.fill(0x20, 20 + json.length, 20 + json.length + jpad);
+  let o = 20 + json.length + jpad;
+  dv.setUint32(o, bin.length + bpad, true); dv.setUint32(o + 4, 0x004E4942, true);
+  out.set(bin, o + 8);
+  return out.buffer;
+}
+(async () => {
+  try {
+    const [jsonText, b64] = await Promise.all([
+      fetchText("fire-engine.json", () => {}),
+      fetchText("fire-engine-geometry.txt", p => { loaderFill.style.width = `${Math.round(p * 85)}%`; })
+    ]);
+    loaderText.textContent = "Preparing textures…";
+    const glb = buildGlb(jsonText, base64ToBytes(b64.trim()));
+    const base = new URL(".", location.href).href;
+    new THREE.GLTFLoader().parse(glb, base, gltf => {
+      gltf.scene.traverse(o => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach(addHighlight);
+      });
+      scene.add(gltf.scene);
+      loaderFill.style.width = "100%";
+      loaderEl.classList.add("gone");
+    }, fail);
+  } catch (err) { fail(err); }
+})();
+function fail(err) {
+  console.error("Model load failed:", err);
+  loaderText.textContent = "The fire engine model couldn't load. Refresh the page to try again.";
+}
+
+// ---------- Hotspots ----------
+const layer = document.getElementById("hotspots");
+const visited = new Set();
+let activeIdx = -1;
+const spots = SECTIONS.map((s, i) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "hotspot";
+  b.innerHTML = `${i + 1}<span class="tip">${s.title}</span>`;
+  b.setAttribute("aria-label", `${i + 1}. ${s.title}`);
+  b.addEventListener("click", e => { e.stopPropagation(); open(i); });
+  layer.appendChild(b);
+  return { el: b, pos: new THREE.Vector3(...s.pos), normal: new THREE.Vector3(...s.normal).normalize() };
+});
+
+const panel = document.getElementById("panel");
+// Opening a different section while one is showing slides the current panel away, then slides the new one in.
+// Opening the same number again closes it.
+let swapTimer = null;
+const subtitle = document.getElementById("subtitle");
+function setSubtitle(i) { subtitle.hidden = i < 0; subtitle.textContent = i < 0 ? "" : `${i + 1} – ${SECTIONS[i].title}`; }
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function open(i) {
+  clearTimeout(swapTimer);
+  if (panel.classList.contains("open")) {
+    if (i === activeIdx) { close(); return; }
+    panel.classList.remove("open");
+    activeIdx = i;
+    spots.forEach((sp, k) => sp.el.classList.toggle("active", k === i));
+    setHighlight(SECTIONS[i]);
+    setSubtitle(i);
+    swapTimer = setTimeout(() => show(i), reduceMotion ? 0 : 300);
+    return;
+  }
+  show(i);
+}
+function show(i) {
+  activeIdx = i;
+  setSubtitle(i);
+  const s = SECTIONS[i];
+  document.getElementById("p-num").textContent = i + 1;
+  document.getElementById("p-kicker").textContent = s.kicker;
+  document.getElementById("p-title").textContent = s.title;
+  document.getElementById("p-body").innerHTML = s.body +
+    `<ul class="specs">${s.specs.map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join("")}</ul>` +
+    `<div class="check"><strong>Key point</strong>${s.check}</div>`;
+  panel.classList.add("open"); panel.setAttribute("aria-hidden", "false");
+  visited.add(i);
+  spots.forEach((sp, k) => { sp.el.classList.toggle("active", k === i); sp.el.classList.toggle("visited", visited.has(k) && k !== i); });
+  setHighlight(s);
+  updateProgress();
+  hideHint();
+}
+function close() {
+  clearTimeout(swapTimer);
+  if (activeIdx < 0) return;
+  setSubtitle(-1);
+  panel.classList.remove("open"); panel.setAttribute("aria-hidden", "true");
+  const last = spots[activeIdx];
+  activeIdx = -1;
+  spots.forEach((sp, k) => { sp.el.classList.remove("active"); sp.el.classList.toggle("visited", visited.has(k)); });
+  setHighlight(null);
+  if (last) last.el.focus({ preventScroll: true });
+}
+function updateProgress() {
+  const n = visited.size, t = SECTIONS.length;
+  document.getElementById("count").textContent = `${n} of ${t} explored`;
+  document.getElementById("fill").style.width = `${(n / t) * 100}%`;
+  document.getElementById("done").classList.toggle("show", n === t);
+  if (n === t) setTimeout(() => document.getElementById("done").classList.remove("show"), 3500);
+}
+document.getElementById("close").addEventListener("click", close);
+document.getElementById("next").addEventListener("click", () => open((activeIdx + 1) % SECTIONS.length));
+document.getElementById("prev").addEventListener("click", () => open((activeIdx - 1 + SECTIONS.length) % SECTIONS.length));
+const intro = document.getElementById("intro");
+function showIntro() { intro.hidden = false; document.getElementById("start").focus({ preventScroll: true }); }
+function hideIntro() { intro.hidden = true; document.getElementById("help").focus({ preventScroll: true }); }
+document.getElementById("start").addEventListener("click", hideIntro);
+document.getElementById("help").addEventListener("click", () => { close(); showIntro(); });
+intro.addEventListener("click", e => { if (e.target === intro) hideIntro(); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!intro.hidden) hideIntro(); else close();
+});
+showIntro();
+
+// A tap on the model area that isn't a drag closes the panel
+let down = null;
+canvas.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY }; hideHint(); });
+canvas.addEventListener("pointerup", e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) close();
+  down = null;
+});
+
+let resetAnim = null;
+document.getElementById("reset").addEventListener("click", () => { resetAnim = { from: camera.position.clone(), t: 0 }; });
+
+const hint = document.getElementById("hint");
+let hintTimer = null;
+function hideHint() { hint.classList.add("gone"); clearTimeout(hintTimer); }
+
+// ---------- Render loop ----------
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.fov = w < 640 ? 52 : 38;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+const v = new THREE.Vector3(), toCam = new THREE.Vector3();
+function placeHotspots() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  spots.forEach(sp => {
+    v.copy(sp.pos).project(camera);
+    const x = (v.x * 0.5 + 0.5) * w, y = (-v.y * 0.5 + 0.5) * h;
+    toCam.copy(camera.position).sub(sp.pos).normalize();
+    sp.el.classList.toggle("behind", toCam.dot(sp.normal) < 0.08);
+    sp.el.style.transform = `translate(${x}px, ${y}px)`;
+  });
+}
+
+const clock = new THREE.Clock();
+function tick() {
+  HL.uTime.value = clock.getElapsedTime();
+  if (resetAnim) {
+    resetAnim.t = Math.min(1, resetAnim.t + 0.04);
+    camera.position.lerpVectors(resetAnim.from, HOME, 1 - Math.pow(1 - resetAnim.t, 3));
+    if (resetAnim.t >= 1) resetAnim = null;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  placeHotspots();
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+
+</body></html>
